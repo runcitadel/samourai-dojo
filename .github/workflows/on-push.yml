@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-20.04
     name: Build image
     steps:
-
       - name: Checkout project
         uses: actions/checkout@v2
 
