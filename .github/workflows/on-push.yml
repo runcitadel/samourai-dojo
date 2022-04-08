@@ -6,7 +6,7 @@ on:
       - develop
 
 jobs:
-  build:
+  build-amd64:
     runs-on: ubuntu-20.04
     name: Build image
     steps:
@@ -31,12 +31,6 @@ jobs:
           IMAGE_NAME="${GITHUB_REPOSITORY#*/}"
           echo "IMAGE_NAME=${IMAGE_NAME//docker-/}" >> $GITHUB_ENV
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
-        with:
-          image: tonistiigi/binfmt:latest
-          platforms: all
-
       - name: Setup Docker buildx action
         uses: docker/setup-buildx-action@v1
 
@@ -53,8 +47,72 @@ jobs:
           docker buildx build \
           --cache-from "type=local,src=/tmp/.buildx-cache" \
           --cache-to "type=local,dest=/tmp/.buildx-cache" \
-          --platform linux/amd64,linux/arm64 \
-          --tag ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME:$BRANCH \
+          --platform linux/amd64 \
+          --tag ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME:$BRANCH-amd64 \
           --build-arg TOR_LINUX_GID=${TOR_LINUX_GID} \
           --output "type=registry" \
           --file ./docker/my-dojo/node/Dockerfile ./
+  build-arm64:
+    runs-on: self-hosted
+    name: Build image
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v2
+
+      - name: Login to Docker Hub
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      - name: Set environment variables
+        shell: bash
+        run: |
+          source ./docker/my-dojo/.env
+          echo "BRANCH=$(echo ${GITHUB_REF#refs/heads/} | sed 's/\//-/g')" >> $GITHUB_ENV
+          echo "DOJO_NODEJS_VERSION_TAG=${DOJO_NODEJS_VERSION_TAG}" >> $GITHUB_ENV
+          echo "TOR_LINUX_GID=${TOR_LINUX_GID}" >> $GITHUB_ENV
+          IMAGE_NAME="${GITHUB_REPOSITORY#*/}"
+          echo "IMAGE_NAME=${IMAGE_NAME//docker-/}" >> $GITHUB_ENV
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build container
+        run: |
+          docker buildx build \
+          --cache-from "type=local,src=/tmp/.buildx-cache" \
+          --cache-to "type=local,dest=/tmp/.buildx-cache" \
+          --platform linux/arm64 \
+          --tag ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME:$BRANCH-arm64 \
+          --build-arg TOR_LINUX_GID=${TOR_LINUX_GID} \
+          --output "type=registry" \
+          --file ./docker/my-dojo/node/Dockerfile ./
+
+  create-manifest:
+    name: Create two-architecture manifest
+    runs-on: ubuntu-20.04
+    needs:
+      - build-amd64
+      - build-arm64
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v2
+
+      - name: Set env variables
+        run: |
+          echo "BRANCH=$(echo ${GITHUB_REF#refs/heads/} | sed 's/\//-/g')" >> $GITHUB_ENV
+          IMAGE_NAME="${GITHUB_REPOSITORY#*/}"
+          echo "IMAGE_NAME=${IMAGE_NAME//docker-/}" >> $GITHUB_ENV
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1 
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create final manifest
+        run: ./create-manifest.sh "ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}" "${BRANCH}"
