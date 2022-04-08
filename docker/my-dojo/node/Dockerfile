@@ -1,4 +1,4 @@
-FROM    node:14-alpine AS builder
+FROM    node:17-alpine AS builder
 
 ENV     NODE_ENV    production
 ENV     APP_DIR     /home/node/app
@@ -16,7 +16,7 @@ COPY    . "$APP_DIR"
 RUN     cd "$APP_DIR" && \
         npm ci --only=production
 
-FROM    node:14-alpine
+FROM    node:17-alpine
 
 ENV     NODE_ENV    production
 ENV     APP_DIR     /home/node/app
